@@ -13,9 +13,6 @@
 #define SHT31_MEASUREMENT_DELAY 100
 #define SHT31_I2C_ADDRESS 0x44
 
-#define EEPROM_ID 0xA0
-#define EEPROM_WP PORTDbits.RD8
-
 #define UINT32 unsigned long
 #define BOOL unsigned char
 #define UINT8 unsigned char

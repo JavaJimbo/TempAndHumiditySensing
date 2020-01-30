@@ -202,13 +202,13 @@ unsigned char ReadSensirionSHT31(unsigned char busID, unsigned char device, unsi
     StartTransfer(busID, false);
 
     if (!TransmitOneByte(busID, I2CAddressByte | WR)) return false; // Send WRITE command and I2C device address
-    if (I2CGetACK(busID)) return 0; // Get ACK from EEPROM
+    if (I2CGetACK(busID)) return false; // Get ACK from EEPROM
 
     if (!TransmitOneByte(busID,  SHT31commandMSB)) return false; // Send EEPROM high address byte
-    if (I2CGetACK(busID)) return 0; // Get ACK from EEPROM
+    if (I2CGetACK(busID)) return false; // Get ACK from EEPROM
 
     if (!TransmitOneByte(busID, SHT31commandLSB)) return false; // Send EEPROM low address byte
-    if (I2CGetACK(busID)) return 0; // Get ACK from EEPROM      
+    if (I2CGetACK(busID)) return false; // Get ACK from EEPROM      
     
     DelayMs(SHT31_MEASUREMENT_DELAY);
     

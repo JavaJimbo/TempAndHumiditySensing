@@ -13,7 +13,8 @@
 #define false FALSE
 #define true TRUE
 
-#define MAX31865_CS LATAbits.LATA10
+// #define MAX31865_CS LATAbits.LATA10
+#define MAX31865_CS LATCbits.LATC0
 
 // VBias OFF, Mode 0, 1 shot, 3 Wire,   Fault, Fault status,  60 Hz
 //         D7      D6     D5      D4      D3D2           D1      D0

@@ -1,6 +1,8 @@
 /***************************************************************************************
  * Project:     TemperatureHumiditySensors
  * 
+ *              USES THE OLIMEX PIC32-PINGUINO-MX220 Board
+ * 
  *              C language code for MAX31865 RTD converter IC 
  *              and Sensirion SHT31 humidity and temperature sensor.
  * 
@@ -29,9 +31,19 @@
  *   
  * 1-27-20 Warwick: Works with Three wire RTD and MAX31865. Fault detection and clearing also works.
  * 1-28-20 Warwick: Got Sensirion SHT31 reading humidity and temperature.
- * 
+ *              A/D and PWM also working.
+ * 1-29-20 Warwick: Fan PWM works, also A/D, and UART #1, and multiplexer outputs.
+ * 1-30-20 Warwick; Recompiled. No new features. Everything works.
  ****************************************************************************************/
-#define TESTOUT LATCbits.LATC2
+#define TESTOUT LATBbits.LATB0
+#define PWM1 OC4RS
+#define PWM_MAX 3000
+
+#define MUX_SELECT_D6 LATCbits.LATC6
+#define MUX_SELECT_D7 LATCbits.LATC7
+#define MUX_SELECT_D8 LATBbits.LATB7
+#define MUX_SELECT_D9 LATAbits.LATA10
+
 #define _SUPPRESS_PLIB_WARNING
 
 #define PWM1 OC4RS
@@ -118,7 +130,7 @@ union convertType
 
 unsigned long dataLength = 0;
 unsigned char hostChar = 0, DATAchar = 0;
-#define NUM_AD_INPUTS 2
+#define NUM_AD_INPUTS 1
 unsigned short arrADreading[NUM_AD_INPUTS];
 unsigned long Timer5Counter = 0;
 unsigned long PORTBreg = 0;
@@ -140,6 +152,34 @@ unsigned char dataIn;
 
 #define SHT31_MEAS_HIGHREP 0x2400 // Command For Sension SHT31: Measurement High Repeatability with Clock Stretch Disabled 
 
+unsigned char DisableMultiplexers()
+{
+    MUX_SELECT_D6 = 0;
+    MUX_SELECT_D7 = 0;
+    MUX_SELECT_D8 = 0;
+    MUX_SELECT_D9 = 0;    
+}
+
+unsigned char SetMultiplexer(unsigned short muxValue)
+{
+    unsigned short PortCDataOut;     
+        
+    MUX_SELECT_D6 = 0;
+    MUX_SELECT_D7 = 0;
+    MUX_SELECT_D8 = 0;
+    MUX_SELECT_D9 = 0;
+            
+    PortCDataOut = (muxValue << 2) & 0b00111100;  // This sets the four probe address using D2-D3-D4-D5 on the Olimex board
+    PORTC = PortCDataOut;
+    
+    if (muxValue < 16) MUX_SELECT_D6 = 1;
+    else if (muxValue < 32) MUX_SELECT_D7 = 1;
+    else if (muxValue < 48) MUX_SELECT_D8 = 1;
+    else if (muxValue < 64) MUX_SELECT_D9 = 1;
+    else return false;
+    return true;
+}
+
 int main(void) 
 {
     unsigned short tempInt;
@@ -148,6 +188,11 @@ int main(void)
     long MAX31865_Temperature;
     long temp;
     long humidity;
+    unsigned short MuxData = 0x0000;
+    unsigned short PWMvalue;
+    short i;
+    unsigned char ch;
+    unsigned char testByte = 'A';
     
     DelayMs(200);
     InitializeSystem();    
@@ -155,30 +200,82 @@ int main(void)
     
     DelayMs(100);
     
+    /*
+    printf("\rTesting UARTS #1 & #2 at 19200");    
+    while(1)
+    {
+        if (DATABufferFull)
+        {
+            DATABufferFull = false;
+            while(!UARTTransmitterIsReady(DATAuart));
+            UARTSendDataByte (DATAuart, '>');  
+            i = 0;
+            do {
+                ch = DATARxBuffer[i++];
+                while(!UARTTransmitterIsReady(DATAuart));
+                UARTSendDataByte (DATAuart, ch);
+            } while (ch != '\r' && i < MAXBUFFER);
+        }
+        
+        if (HOSTBufferFull)
+        {
+            HOSTBufferFull = false;
+            printf("\rReceived: %s", HOSTRxBuffer);
+        }
+        DelayMs(1);        
+    }
+    */
+    
+    /*
+    while(1)
+    {        
+        // printf("\r#%d: PWM1 = %d", counter, arrADreading[0]);
+        PWMvalue = arrADreading[0] * 3;
+        if (PWMvalue > PWM_MAX) PWMvalue = PWM_MAX;
+        PWM1 = PWMvalue;
+        mAD1IntEnable(INT_ENABLED);
+        DelayMs(100);
+    }
+    */
+    
     printf("\r\r\r\rStarting - Initializing PIC SPI port #2 for MAX31865...");
-    InitializeSPI(2);      
+    InitializeSPI(2);
     printf("DONE.");
     ConfigureMAX31865();        
+    
     printf("\rInitializing PIC I2C Bus #1 for Sensirion...");
     initI2C(I2C1);
-    printf("DONE.\r\rReading humidity and Temperature:\r");
+    printf("DONE.\r\rReading humidity and Temperature & setting MUX...\r");
+    
     
     while(1)
     {
-        DelayMs(1000);        
+        DelayMs(250);    
+    
+        SetMultiplexer(MuxData++);
+        if (MuxData > 63) MuxData = 0x00;                
+        
         if (!ReadSensirionSHT31(I2C1, SHT31_I2C_ADDRESS, SHT31_MEAS_HIGHREP, SensirionData, 6))
         {
             printf("\rSensirion Read error...");
             humidity = temp = 0;
         }
-        else ConvertSensirionHumidityTempX100(SensirionData, &humidity, &temp);
+        else ConvertSensirionHumidityTempX100(SensirionData, &humidity, &temp);        
+        
+        
+        PWMvalue = arrADreading[0] * 3;
+        if (PWMvalue > PWM_MAX) PWMvalue = PWM_MAX;
+        PWM1 = PWMvalue;
+        mAD1IntEnable(INT_ENABLED);        
         
         tempInt = ReadRawRTDTemperature();
+        
         if (CheckMAX31865Fault()) 
         {
             MAX31865_Temperature = (long) (TemperatureCalc(tempInt) * 100);
-            printf("\r#%d: Sensirion RH x100: %d, Temp Celsius x100: %d, MAX31865 RTD x100: %d", counter++, humidity, temp, MAX31865_Temperature);
-        }
+            printf("\r#%d: RH: %d, TC: %d, RTD: %d", counter++, humidity, temp, MAX31865_Temperature);
+            // printf("\r#%d: RTD: %d", counter++, MAX31865_Temperature);
+        }        
     }
        
 } // End main())
@@ -189,18 +286,19 @@ void putch(unsigned char ch) {
     U2TXREG = ch;
 }
 
+
 void InitializeSystem(void) 
 {
-    // ConfigAd();
-    
+    ConfigAd();    
     mJTAGPortEnable(false);           
 
     // DIGITAL OUTPUTS: 
-    PORTSetPinsDigitalOut(IOPORT_A, BIT_10); // This is the chip select for MAX31865
-    MAX31865_CS = 1;  // Initialize to high to unselect IC
-
-    PORTSetPinsDigitalOut(IOPORT_C, BIT_2); 
+    PORTSetPinsDigitalOut(IOPORT_A, BIT_10); // This is D9
+    PORTSetPinsDigitalOut(IOPORT_B, BIT_0 | BIT_7); // This D8
+    PORTSetPinsDigitalOut(IOPORT_C, BIT_0 | BIT_2 | BIT_3 | BIT_4 | BIT_5  | BIT_6 | BIT_7 );  // RC0 is MAX31865 CS, RC2-RC7 are bits D2-D7
+    MAX31865_CS = 1;  // This is the chip select for MAX31865
     TESTOUT = 0;
+    
     
     // Set up PPS IO for SPI #2 SDO and SDI.
     // Note that SPI clock is on fixed pin and doesn't use PPS.
@@ -210,9 +308,8 @@ void InitializeSystem(void)
     //ATMEL_WRITE_PROTECT = 1; // Enable EEPROM write protection at startup, and disable chip select
     //ATMEL_CS = 1;
 
-    // Enable analog inputs
-    ANSELCbits.ANSC0 = 1; // AN6  
-    ANSELCbits.ANSC1 = 1; // AN7     
+    // Enable analog input(s)  
+    ANSELBbits.ANSB3 = 1; // AN5
 
     // Disable analog on digital inputs:    
     ANSELBbits.ANSB15 = 0;
@@ -221,16 +318,38 @@ void InitializeSystem(void)
     ANSELBbits.ANSB0 = 0;
     ANSELBbits.ANSB1 = 0;
     ANSELBbits.ANSB2 = 0;
-    ANSELCbits.ANSC3 = 0;
     
+    ANSELCbits.ANSC0 = 0; 
     ANSELCbits.ANSC2 = 0;
-
-    TESTOUT = 1;
-
-    /*
+    ANSELCbits.ANSC3 = 0;
+        
+    // Set up Timer 2 for PWM time base    
+    T2CON = 0x00;
+    T2CONbits.TCKPS2 = 0; // 1:1 Prescaler
+    T2CONbits.TCKPS1 = 0;
+    T2CONbits.TCKPS0 = 0;
+    PR2 = 3000; // Use 50 microsecond rollover for 20 khz
+    T2CONbits.TON = 1; // Let her rip       
+    
+    // Set up Timer 2 interrupt with a priority of 2
+    ConfigIntTimer2(T2_INT_ON | T2_INT_PRIOR_2);
+    // OpenTimer2(T2_ON | T2_SOURCE_INT);    
+    
+    
+    // Set up PWM OC4 on D6 on the Olimex 220 board:
+    PPSOutput(3, RPC1, OC4);
+    OC4CON = 0x00;
+    OC4CONbits.OC32 = 0; // 16 bit PWM
+    OC4CONbits.ON = 1; // Turn on PWM
+    OC4CONbits.OCTSEL = 0; // Use Timer 2 as PWM time base
+    OC4CONbits.OCM2 = 1; // PWM mode enabled, no fault pin
+    OC4CONbits.OCM1 = 1;
+    OC4CONbits.OCM0 = 0;        
+    PWM1 = 0; // OC4RS = 1000;    
+          
     // Set up DATA UART #1   
-    PPSInput(3,U1RX, RPC3);     // Assign U1RX to pin RPC3
-    PPSOutput(1,RPB3,U1TX);     // Assign U1TX to pin RPB3
+    PPSInput(3,U1RX, RPA4);     // Assign U1RX to pin RPC3
+    PPSOutput(1,RPB4,U1TX);     // Assign U1TX to pin RPB3
     
     // Configure UART #1 (DATA UART) - NOTE: This UART isn't being used yet
     UARTConfigure(DATAuart, UART_ENABLE_HIGH_SPEED | UART_ENABLE_PINS_TX_RX_ONLY);
@@ -244,7 +363,7 @@ void InitializeSystem(void)
     INTEnable(INT_U1RX, INT_ENABLED);
     INTSetVectorPriority(INT_VECTOR_UART(DATAuart), INT_PRIORITY_LEVEL_2);
     INTSetVectorSubPriority(INT_VECTOR_UART(DATAuart), INT_SUB_PRIORITY_LEVEL_0);    
-    */
+    
     
 
     // Set up PPS pins for Uart #2:
@@ -268,7 +387,16 @@ void InitializeSystem(void)
 }//end UserInit
 
 
-/* A/D NOT USED IN THIS VERSION
+// Timer 2 generates an interrupt every 50 microseconds approximately
+void __ISR(_TIMER_2_VECTOR, IPL2AUTO) Timer2Handler(void) 
+{
+    mT2ClearIntFlag(); // Clear interrupt flag       
+
+    if (TESTOUT) TESTOUT = 0;
+    else TESTOUT = 1;
+}
+
+
 void ConfigAd(void) 
 {
     //mPORTCSetPinsAnalogIn(BIT_0 | BIT_1);
@@ -283,7 +411,7 @@ void ConfigAd(void)
 #define PARAM1  ADC_MODULE_ON | ADC_FORMAT_INTG | ADC_CLK_AUTO | ADC_AUTO_SAMPLING_ON
 
     // ADC ref external    | disable offset test    | enable scan mode | perform  samples | use dual buffers | use only mux A
-#define PARAM2  ADC_VREF_AVDD_AVSS | ADC_OFFSET_CAL_DISABLE | ADC_SCAN_ON | ADC_SAMPLES_PER_INT_4 | ADC_ALT_BUF_ON | ADC_ALT_INPUT_OFF
+#define PARAM2  ADC_VREF_AVDD_AVSS | ADC_OFFSET_CAL_DISABLE | ADC_SCAN_ON | ADC_SAMPLES_PER_INT_1 | ADC_ALT_BUF_ON | ADC_ALT_INPUT_OFF
 
     //                   use ADC internal clock | set sample time
 #define PARAM3  ADC_CONV_CLK_INTERNAL_RC | ADC_SAMPLE_TIME_31
@@ -292,12 +420,12 @@ void ConfigAd(void)
     // #define PARAM4    ENABLE_AN0_ANA | ENABLE_AN1_ANA| ENABLE_AN2_ANA | ENABLE_AN3_ANA
 
 
-// USE AN6 and AN7    
-#define PARAM5 SKIP_SCAN_AN0 | SKIP_SCAN_AN1 |SKIP_SCAN_AN2 | SKIP_SCAN_AN3 | SKIP_SCAN_AN4 | SKIP_SCAN_AN5 |\
-    SKIP_SCAN_AN8 | SKIP_SCAN_AN9 | SKIP_SCAN_AN10 |\
+// USE AN5, DISABLE OTHERS:
+#define PARAM5 SKIP_SCAN_AN0 | SKIP_SCAN_AN1 |SKIP_SCAN_AN2 | SKIP_SCAN_AN3 | SKIP_SCAN_AN4 |\
+    SKIP_SCAN_AN6 | SKIP_SCAN_AN7 | SKIP_SCAN_AN8 | SKIP_SCAN_AN9 | SKIP_SCAN_AN10 |\
     SKIP_SCAN_AN11 | SKIP_SCAN_AN12 | SKIP_SCAN_AN13 | SKIP_SCAN_AN14 | SKIP_SCAN_AN15
     
-#define PARAM4    ENABLE_AN6_ANA | ENABLE_AN7_ANA     
+#define PARAM4    ENABLE_AN5_ANA
 
     // set negative reference to Vref for Mux A
     SetChanADC10(ADC_CH0_NEG_SAMPLEA_NVREF);
@@ -328,7 +456,7 @@ void __ISR(_ADC_VECTOR, IPL2AUTO) ADHandler(void) {
         arrADreading[i] = (unsigned long) ReadADC10(offSet + i); // read the result of channel 0 conversion from the idle buffer
 }
 
-
+/*
 void __ISR(_TIMER_5_VECTOR, IPL2AUTO) Timer5Handler(void) {
     mT5ClearIntFlag(); // Clear interrupt flag
     if (Timer5Counter) Timer5Counter--;
@@ -344,22 +472,9 @@ void __ISR(_CHANGE_NOTICE_VECTOR, IPL2AUTO) ChangeNotice_Handler(void) {
 
 }
 
-// Timer 2 generates an interrupt every 50 microseconds approximately
-void __ISR(_TIMER_2_VECTOR, IPL2AUTO) Timer2Handler(void) 
-{
-    static int intCounter = 0;    
-    mT2ClearIntFlag(); // Clear interrupt flag       
-    
-    intCounter++;
-    if (intCounter >= 50)
-    {
-        intCounter = 0;
-        intFlag = true;
-    }
-}
+
 */
 
-/* NOT USED
 void __ISR(DATA_VECTOR, IPL2AUTO) IntUart1Handler(void) 
 {
     static short RXindex = 0;
@@ -386,7 +501,7 @@ void __ISR(DATA_VECTOR, IPL2AUTO) IntUart1Handler(void)
         }
     }
 }
-*/
+
 
 #define ESC 27
 #define CR 13
